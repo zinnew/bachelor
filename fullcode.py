@@ -9,9 +9,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.inspection import permutation_importance
 from sklearn.pipeline import Pipeline
 
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
 
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
 
@@ -30,23 +31,22 @@ categorical_features = X.select_dtypes(include=['object']).columns.tolist()
 numerical_features = X.select_dtypes(exclude=['object']).columns.tolist()
 
 # Preprocessing pipeline
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('num', StandardScaler(), numerical_features),
+def make_preprocessor(categorical_features, numerical_features): 
+    return ColumnTransformer(transformers=[
+        ('num', StandardScaler(), numerical_features), 
         ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
     ])
+
 print('Categorical features:', categorical_features)
 print('Numerical features:', numerical_features)
 
 #split data into training and testing sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-#
-
 
 #create a pipeline that combines preprocessing and the Random Forest model
 rf_classifier = Pipeline(steps=[
-    ('preprocessor', preprocessor),
+    ('preprocessor', make_preprocessor(categorical_features, numerical_features)),
     ('rf', RandomForestClassifier(n_estimators=100, random_state=42))
 ])
 
@@ -72,7 +72,7 @@ pfi_rf_df = pd.DataFrame({
 
 #create a pipeline that combines preprocessing and the SVM model
 svm_classifier = Pipeline(steps=[
-    ('preprocessor', preprocessor),
+    ('preprocessor', make_preprocessor(categorical_features, numerical_features)),
     ('svm', SVC(kernel='rbf', probability=True, random_state=42))
 ])
 
@@ -98,7 +98,7 @@ pfi_svm_df = pd.DataFrame({
 
 #create a pipeline that combines preprocessing and the KNN model
 knn_classifier = Pipeline(steps=[
-    ('preprocessor', preprocessor),
+    ('preprocessor', make_preprocessor(categorical_features, numerical_features)),
     ('knn', KNeighborsClassifier(n_neighbors=5))
 ])
 
@@ -152,6 +152,7 @@ for feature, score in final_rank:
 #using the highest performing features to train new models 
 top_features = [feat for feat, _ in final_rank]
 X_top = X[top_features[:5]] #select top 5 features
+print("Top features selected for XAI models:", X_top.columns.tolist())
 
 categorical_featues_top = [feat for feat in categorical_features if feat in X_top.columns] #update categorical features list
 numerical_features_top = [feat for feat in numerical_features if feat in X_top.columns] #update numerical features list
@@ -162,6 +163,7 @@ preprocessor_xai = ColumnTransformer(
         ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_featues_top)
     ])
 
+#splitting the top features data into training and testing sets
 X_train_xai, X_test_xai, y_train_xai, y_test_xai = train_test_split(X_top, y, test_size=0.2, random_state=42)
 
 
@@ -219,13 +221,38 @@ precision_knn_xai = class_report_knn_xai['1']['precision']
 auc_knn_xai = roc_auc_score(y_test_xai, knn_classifier_xai.predict_proba(X_test_xai)[:, 1])
 
 
+#creating xai ensemble model using stacking 
+estimators_xai = [
+    ('rf', rf_classifier_xai), 
+    ('svm', svm_classifier_xai), 
+    ('knn', knn_classifier_xai)
+]
+final_estimator_xai = LogisticRegression(class_weight='balanced', random_state=42, max_iter=1000)
+
+ensamble_xai = StackingClassifier(
+    estimators=estimators_xai, 
+    final_estimator=final_estimator_xai,
+    cv=5
+)
+ensamble_xai.fit(X_train_xai, y_train_xai) #train the ensemble model
+y_pred_ensemble_xai = ensamble_xai.predict(X_test_xai) #make predictions on the test set
+
+#evaluate the xai ensemble model
+accuracy_ensemble_xai = accuracy_score(y_test_xai, y_pred_ensemble_xai)
+cm_ensemble_xai = confusion_matrix(y_test_xai, y_pred_ensemble_xai)
+class_report_ensemble_xai = classification_report(y_test_xai, y_pred_ensemble_xai, output_dict=True)
+f1_ensemble_xai = class_report_ensemble_xai['1']['f1-score']
+precision_ensemble_xai = class_report_ensemble_xai['1']['precision']
+auc_ensemble_xai = roc_auc_score(y_test_xai, ensamble_xai.predict_proba(X_test_xai)[:, 1])
+
+
 #fianl results 
 table = pd.DataFrame({
     'Model': ['XAI SVM', 'XAI RF', 'XAI KNN', 'XAI Ensemble', 'ML SVM', 'ML RF', 'ML KNN', 'ML Ensemble'], 
-    'Accuracy': [accuracy_svm_xai, accuracy_rf_xai, accuracy_knn_xai, None, None, None, None, None],
-    'F1 Score': [f1_svm_xai, f1_rf_xai, f1_knn_xai, None, None, None, None, None],
-    'Precision': [precision_svm_xai, precision_rf_xai, precision_knn_xai, None, None, None, None, None], 
-    'AUC': [auc_svm_xai, auc_rf_xai, auc_knn_xai, None, None, None, None, None]
+    'Accuracy': [accuracy_svm_xai, accuracy_rf_xai, accuracy_knn_xai, accuracy_ensemble_xai, None, None, None, None],
+    'F1 Score': [f1_svm_xai, f1_rf_xai, f1_knn_xai, f1_ensemble_xai, None, None, None, None],
+    'Precision': [precision_svm_xai, precision_rf_xai, precision_knn_xai, precision_ensemble_xai, None, None, None, None], 
+    'AUC': [auc_svm_xai, auc_rf_xai, auc_knn_xai, auc_ensemble_xai, None, None, None, None]
 })
 
 print(table)
