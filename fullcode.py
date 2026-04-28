@@ -190,6 +190,19 @@ plt.tight_layout()
 plt.show()
 
 
+#evaluation of the indivudual models 
+table_individual = pd.DataFrame({
+    'Model': ['SVM', 'Random Forest', 'KNN'],
+    'Accuracy': [accuracy_svm, accuracy_rf, accuracy_knn],
+    'F1 Score': [f1_svm, f1_rf, f1_knn],
+    'Precision': [precision_svm, precision_rf, precision_knn],
+    'Recall': [recall_svm, recall_rf, recall_knn],
+    'AUC': [auc_svm, auc_rf, auc_knn]
+})
+
+print(f'\nEvaluation of individual models:\n{table_individual}')
+
+
 #BORDA COUNT
 model_dfs = {
     'Random Forest': pfi_rf_df,
