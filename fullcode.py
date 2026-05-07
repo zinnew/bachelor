@@ -17,6 +17,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
 
 from collections import defaultdict
+from scipy.stats import wilcoxon
 
 df = pd.read_csv('bank-full.csv', sep=';')
 
@@ -74,8 +75,11 @@ pfi_rf_df = pd.DataFrame({
 print(f'\nPermutation Feature Importance for Random Forest:\n{pfi_rf_df}')
 
 #bar plot for visualization of feature importance RF
+top_n=5
+colors = ['#1f77b4' if i < top_n else '#d3d3d3' for i in range(len(pfi_rf_df))]
+
 plt.figure(figsize=(15, 10))
-plt.bar(pfi_rf_df['feature'], pfi_rf_df['importance_mean'], yerr=pfi_rf_df['importance_std'], capsize=4)
+plt.bar(pfi_rf_df['feature'], pfi_rf_df['importance_mean'], yerr=pfi_rf_df['importance_std'], capsize=4, color = colors)
 plt.ylabel('Mean importance (performance drop)')
 plt.title('Permutation Feature Importance - RF')
 plt.xticks(rotation=45, ha='right', fontsize=10)
@@ -115,8 +119,10 @@ pfi_svm_df = pd.DataFrame({
 print(f'\nPermutation Feature Importance for SVM:\n{pfi_svm_df}')
 
 #bar plot for visualization of feature importance SVM
+colors = ['#1f77b4' if i < top_n else '#d3d3d3' for i in range(len(pfi_rf_df))]
+
 plt.figure(figsize=(15, 10))
-plt.bar(pfi_svm_df['feature'], pfi_svm_df['importance_mean'], yerr=pfi_svm_df['importance_std'], capsize=4)
+plt.bar(pfi_svm_df['feature'], pfi_svm_df['importance_mean'], yerr=pfi_svm_df['importance_std'], capsize=4, color = colors)
 plt.ylabel('Mean importance (performance drop)')
 plt.title('Permutation Feature Importance - SVM')
 plt.xticks(rotation=45, ha='right', fontsize=10)
@@ -179,8 +185,10 @@ pfi_knn_df = pd.DataFrame({
 print(f'\nPermutation Feature Importance for KNN:\n{pfi_knn_df}')
 
 #bar plot for visualization of feature importance KNN
+colors = ['#1f77b4' if i < top_n else '#d3d3d3' for i in range(len(pfi_rf_df))]
+
 plt.figure(figsize=(15, 10))
-plt.bar(pfi_knn_df['feature'], pfi_knn_df['importance_mean'], yerr=pfi_knn_df['importance_std'], capsize=4)
+plt.bar(pfi_knn_df['feature'], pfi_knn_df['importance_mean'], yerr=pfi_knn_df['importance_std'], capsize=4, color = colors)
 plt.ylabel('Mean importance (performance drop)')
 plt.title('Permutation Feature Importance - KNN')
 plt.xticks(rotation=45, ha='right', fontsize=10)
@@ -234,9 +242,10 @@ for feature, score in final_rank:
 
 
 #bar chart for visualization of Borda Count feature importance
+colors = ['#1f77b4' if i < top_n else '#d3d3d3' for i in range(len(pfi_rf_df))]
 
 plt.figure(figsize=(15, 10))
-plt.bar([f for f, _ in final_rank], df_stored['importance_mean'], yerr=df_stored['importance_std'], capsize=4)
+plt.bar([f for f, _ in final_rank], df_stored['importance_mean'], yerr=df_stored['importance_std'], capsize=4, color = colors)
 plt.ylabel('Mean importance (performance drop)')
 plt.title('Borda Count Feature Rankings (RF + SVM + KNN)')
 plt.xticks(rotation=45, ha='right', fontsize=10)
@@ -245,31 +254,35 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
-"""features_ordered = [f for f, _ in final_rank]
+print(f'std for month: {df_stored.loc[df_stored["feature"] == "month", "importance_std"].values[0]:.4f}')
 
-importance_per_model = {f: [] for f in features_ordered}
 
-for model_name, df in model_dfs.items():
-    for f in features_ordered: 
-        val = df.loc[df['feature'] == f, 'importance_mean'].values[0]
-        importance_per_model[f].append(val)
+#wilcoxon signed-rank test for statistical significance of features
+pfi_borda_df = pd.DataFrame({
+    'feature': [f for f, _ in final_rank],
+    'importance_mean': df_stored['importance_mean'], 
+    'importance_std': df_stored['importance_std']
+})
 
-avg_importance = [np.mean(importance_per_model[f]) for f in features_ordered]
-std_importance = [np.std(importance_per_model[f]) for f in features_ordered]
+pfi_ensemble_df = pd.DataFrame({
+    'feature': ['month', 'contact', 'day', 'pdays', 'poutcome', 'age', 'previous', 'housing', 'marital', 'campaign', 'default', 'balance', 'education', 'job', 'loan'], 
+    'importance_mean': [0.178503, 0.087471, 0.052637, 0.040982, 0.030388, 0.021298, 0.014508, 0.008979, 0.005087, 0.002588, 0.000354, -0.000088, -0.001017, -0.001261, -0.001703], 
+    'importance_std': [0.002754, 0.002238, 0.002320, 0.001503, 0.000595, 0.002203, 0.001422, 0.000905, 0.002014, 0.001386, 0.000308, 0.001530, 0.001384, 0.0007774, 0.000829]
+})
 
-fig, ax = plt.subplots(figsize=(15, 10))
+#align pfi lists on features
+pfi_merged = pfi_borda_df.merge(pfi_ensemble_df, on='feature', suffixes=('_borda', '_ensemble'))
 
-ax.bar(features_ordered, avg_importance, color='steelblue', width=0.6, yerr=std_importance, capsize=4, error_kw={'elinewidth': 1.2, 'ecolor': 'black'})
+wil_x = pfi_merged['importance_mean_borda'].values
+wil_y = pfi_merged['importance_mean_ensemble'].values
 
-ax.set_ylabel('Mean importance (performance drop)')
-ax.set_title('Borda Count Feature Rankings (RF + SVM + KNN)')
-ax.set_xticks(range(len(features_ordered)))
-ax.set_xticklabels(features_ordered, rotation=45, ha='right', fontsize=10)
+stat, p_value = wilcoxon(wil_x, wil_y)
 
-ax.yaxis.grid(True, linestyle='--', alpha=0.7)
-ax.set_axisbelow(True)
-plt.tight_layout()
-plt.show()"""
+print(f'\nWilcoxon statistic: {stat:.4f}')
+print(f'\nP-value: {p_value:.4f}')
+print(f'\nSiginificant (alpha=0.05): {p_value < 0.05}')
+
+
 
 #using the highest performing features to train new models 
 top_features = [feat for feat, _ in final_rank]
